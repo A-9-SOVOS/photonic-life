@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photonic Life</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      color: #bbb;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 12px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: #060608;
+      border-bottom: 1px solid #181828;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #topbar h1 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg,#f44,#fa0,#ff0,#0f4,#0ff,#48f,#f4f,#f44);
+      background-size: 300%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: spectrumShift 5s linear infinite;
+      margin-right: 6px;
+      white-space: nowrap;
+    }
+    @keyframes spectrumShift { to { background-position: 300% center; } }
+
+    .sep { width: 1px; height: 18px; background: #1e1e2e; margin: 0 2px; flex-shrink: 0; }
+
+    button {
+      padding: 4px 10px;
+      border: 1px solid #2a2a3a;
+      border-radius: 4px;
+      background: #0e0e18;
+      color: #aaa;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    button:hover { background: #1a1a2a; border-color: #444; color: #ddd; }
+    button.active { background: #12122a; border-color: #667eea; color: #aaf; }
+
+    .ctrl-group { display: flex; align-items: center; gap: 5px; }
+    .ctrl-group label { color: #555; white-space: nowrap; }
+    .ctrl-group .val  { color: #88aaff; min-width: 34px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      width: 72px; height: 3px;
+      background: #1e1e2e; border-radius: 2px; outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 11px; height: 11px; border-radius: 50%;
+      background: #667eea; cursor: pointer;
+    }
+
+    .toggle-wrap { display: flex; align-items: center; gap: 4px; color: #555; }
+    .toggle-wrap input[type=checkbox] { accent-color: #667eea; width: 13px; height: 13px; cursor: pointer; }
+
+    #chRBtn { border-color: #500; color: #f66; }
+    #chRBtn.active { background: #200; border-color: #f44; color: #f88; }
+    #chGBtn { border-color: #050; color: #6f6; }
+    #chGBtn.active { background: #020; border-color: #4f4; color: #8f8; }
+    #chBBtn { border-color: #005; color: #66f; }
+    #chBBtn.active { background: #002; border-color: #44f; color: #88f; }
+
+    /* ── Main area ── */
+    #main { display: flex; flex: 1; overflow: hidden; flex-direction: column; position: relative; }
+
+    #gameArea { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+    #canvasWrap { flex: 1; position: relative; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; cursor: crosshair; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 188px; flex-shrink: 0;
+      background: #04040a;
+      border-left: 1px solid #181828;
+      display: flex; flex-direction: column;
+      padding: 10px; gap: 12px;
+      overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: #333; margin-bottom: 5px;
+    }
+
+    .stat-grid {
+      display: grid; grid-template-columns: 1fr auto auto;
+      gap: 2px 6px; align-items: center;
+    }
+    .stat-grid .lbl { color: #444; font-size: 11px; }
+    .stat-grid .val { color: #7af; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; }
+    .stat-grid .coh { font-size: 10px; text-align: right; }
+    .stat-grid .coh-r { color: #f66; }
+    .stat-grid .coh-g { color: #6f6; }
+    .stat-grid .coh-b { color: #66f; }
+
+    .stat-row-full {
+      display: flex; justify-content: space-between;
+      padding: 2px 0; border-bottom: 1px solid #0e0e18;
+    }
+    .stat-row-full .lbl { color: #444; }
+    .stat-row-full .val { color: #7af; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .ch-header {
+      display: grid; grid-template-columns: 1fr auto auto;
+      gap: 2px 6px; font-size: 9px; color: #333;
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px;
+    }
+
+    .legend-item {
+      display: flex; align-items: flex-start; gap: 6px;
+      padding: 4px 0; border-bottom: 1px solid #0e0e18; line-height: 1.4;
+    }
+    .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; }
+    .legend-item p { color: #444; font-size: 10px; }
+    .legend-item strong { color: #666; }
+
+    #wdmDiagram { display: flex; gap: 3px; align-items: flex-end; height: 32px; margin-top: 4px; }
+    .wdm-bar { flex: 1; border-radius: 2px 2px 0 0; transition: height 0.3s; min-height: 2px; }
+
+    /* ── Alias list drawer (right side) ── */
+    #aliasPanel {
+      position: absolute;
+      top: 0; right: 188px;
+      width: 230px;
+      height: 100%;
+      background: #06060e;
+      border-left: 1px solid #1e1e3a;
+      display: none;
+      flex-direction: column;
+      z-index: 10;
+      overflow-y: auto;
+    }
+    #aliasPanel.open { display: flex; }
+
+    #aliasPanel .ap-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid #1e1e3a;
+      background: #08081a;
+      flex-shrink: 0;
+    }
+    #aliasPanel .ap-header h2 {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.15em;
+      text-transform: uppercase; color: #667eea;
+    }
+    #aliasPanel .ap-close {
+      background: none; border: none; color: #445; font-size: 13px; cursor: pointer; padding: 1px 5px;
+    }
+    #aliasPanel .ap-close:hover { color: #aaa; }
+
+    .ap-section { padding: 8px 10px; border-bottom: 1px solid #0e0e18; }
+    .ap-section-title {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.15em;
+      text-transform: uppercase; color: #333; margin-bottom: 6px;
+    }
+
+    /* Size pickers */
+    .ap-size-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .ap-size-row label { color: #445; font-size: 10px; }
+    .ap-size-row select {
+      background: #0e0e18; border: 1px solid #2a2a3a; color: #aaa;
+      border-radius: 3px; padding: 1px 5px; font-size: 10px; cursor: pointer;
+    }
+
+    /* Palette swatches */
+    .ap-palette {
+      display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px;
+    }
+    .pal-swatch {
+      width: 18px; height: 18px; border-radius: 3px;
+      border: 2px solid transparent; cursor: pointer;
+      transition: transform 0.1s, border-color 0.1s;
+    }
+    .pal-swatch:hover  { transform: scale(1.15); }
+    .pal-swatch.selected { border-color: #fff; transform: scale(1.1); }
+
+    /* Editor canvases */
+    .ap-editor-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: #334; margin-bottom: 4px;
+    }
+    .ap-editor-label span { color: #667eea; }
+    #aliasEditorA canvas, #aliasEditorB canvas { border: 1px solid #1e1e3a; border-radius: 2px; }
+
+    /* Name + add */
+    .ap-add-row { display: flex; gap: 6px; align-items: center; }
+    .ap-add-row input[type=text] {
+      flex: 1; background: #0e0e18; border: 1px solid #2a2a3a;
+      color: #ccc; border-radius: 3px; padding: 3px 7px; font-size: 11px;
+    }
+    .ap-add-row input[type=text]::placeholder { color: #2a2a3a; }
+    #aliasAddBtn { background: #12122a; border-color: #667eea; color: #aaf; }
+    #aliasAddBtn:hover { background: #1a1a3a; }
+
+    /* Alias list */
+    .ap-io-row { display: flex; gap: 5px; margin-bottom: 8px; }
+    .ap-io-row button { flex: 1; font-size: 10px; padding: 3px 6px; color: #667eea; border-color: #1a1a3a; }
+    #aliasList { display: flex; flex-direction: column; gap: 4px; }
+    .alias-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 8px; background: #0a0a18; border-radius: 4px;
+      border: 1px solid #1a1a2a;
+    }
+    .alias-row.disabled { opacity: 0.4; }
+    .alias-name { flex: 1; font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .alias-size { font-size: 10px; color: #445; font-variant-numeric: tabular-nums; }
+    .alias-toggle { padding: 2px 6px; font-size: 12px; color: #667eea; border-color: #1a1a3a; }
+    .alias-del    { padding: 2px 6px; font-size: 10px; color: #644; border-color: #1a1a2a; }
+    .alias-del:hover { color: #f44; border-color: #f44; }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>Photonic Life</h1>
+
+  <button id="playButton">▶ Play</button>
+  <button id="stepButton">⏭ Step</button>
+  <button id="randomButton">⟳ Seed</button>
+  <button id="clearButton">✕ Clear</button>
+
+  <div class="sep"></div>
+
+  <div class="ctrl-group">
+    <label>Speed</label>
+    <input type="range" id="speedSlider" min="1" max="60" value="20">
+    <span class="val" id="speedValue">20 FPS</span>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Cell</label>
+    <input type="range" id="sizeSlider" min="3" max="14" value="6">
+    <span class="val" id="sizeValue">6px</span>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Brush</label>
+    <input type="range" id="brushSizeSlider" min="1" max="6" value="1">
+    <span class="val" id="brushSizeValue">1px</span>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="ctrl-group">
+    <label>Channel</label>
+    <button id="chRBtn" class="active">R</button>
+    <button id="chGBtn">G</button>
+    <button id="chBBtn">B</button>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Phase</label>
+    <input type="range" id="phaseSlider" min="0" max="359" value="0">
+    <span class="val" id="phaseValue">0°</span>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="toggle-wrap">
+    <input type="checkbox" id="bloomToggle" checked>
+    <label for="bloomToggle">Bloom</label>
+  </div>
+
+  <div class="sep"></div>
+
+  <button id="aliasToggleBtn">⇄ Aliases</button>
+</div>
+
+<div id="main">
+  <div id="gameArea">
+    <div id="canvasWrap">
+      <canvas id="gridCanvas"></canvas>
+    </div>
+
+    <!-- ── Alias panel (right of canvas, left of sidebar) ── -->
+    <div id="aliasPanel">
+      <div class="ap-header">
+        <h2>Pattern Aliases</h2>
+        <button class="ap-close" id="aliasPanelClose">✕</button>
+      </div>
+
+      <div class="ap-section">
+        <div class="ap-section-title">Size</div>
+        <div class="ap-size-row">
+          <label>W</label><select id="aliasSizeW"></select>
+          <label>H</label><select id="aliasSizeH"></select>
+        </div>
+
+        <div class="ap-editor-label">A — <span>trigger</span></div>
+        <div class="ap-palette" id="aliasPalA"></div>
+        <div id="aliasEditorA" style="margin-bottom:10px"></div>
+
+        <div class="ap-editor-label">B — <span>replacement</span></div>
+        <div class="ap-palette" id="aliasPalB"></div>
+        <div id="aliasEditorB" style="margin-bottom:10px"></div>
+
+        <div style="font-size:9px;color:#334;margin-bottom:8px">
+          Click palette → paint cells. Right-click cell = dead.
+        </div>
+
+        <div class="ap-add-row">
+          <input type="text" id="aliasName" placeholder="Name…" maxlength="32">
+          <button id="aliasAddBtn">+ Add</button>
+        </div>
+      </div>
+
+      <div class="ap-section" style="flex:1">
+        <div class="ap-section-title">Active aliases</div>
+        <div class="ap-io-row">
+          <button id="aliasExportBtn" title="Export aliases to JSON file">↓ Export</button>
+          <button id="aliasImportBtn" title="Import aliases from JSON file">↑ Import</button>
+          <input type="file" id="aliasImportFile" accept=".json" style="display:none">
+        </div>
+        <div id="aliasList"></div>
+      </div>
+    </div>
+
+    <div id="sidebar">
+      <div>
+        <div class="panel-title">Simulation</div>
+        <div class="stat-row-full"><span class="lbl">Generation</span><span class="val" id="generation">0</span></div>
+        <div class="stat-row-full"><span class="lbl">Active photons</span><span class="val" id="activeCells">0</span></div>
+      </div>
+
+      <div>
+        <div class="panel-title">WDM Channels</div>
+        <div class="ch-header"><span>Channel</span><span>Cells</span><span>Coherence</span></div>
+        <div class="stat-grid">
+          <span class="lbl" style="color:#f66">650nm Red</span>
+          <span class="val" id="chR">0</span>
+          <span class="coh coh-r" id="cohR">—</span>
+
+          <span class="lbl" style="color:#6f6">532nm Green</span>
+          <span class="val" id="chG">0</span>
+          <span class="coh coh-g" id="cohG">—</span>
+
+          <span class="lbl" style="color:#66f">450nm Blue</span>
+          <span class="val" id="chB">0</span>
+          <span class="coh coh-b" id="cohB">—</span>
+        </div>
+        <div id="wdmDiagram">
+          <div class="wdm-bar" id="wdmR" style="background:#f44"></div>
+          <div class="wdm-bar" id="wdmG" style="background:#4f4"></div>
+          <div class="wdm-bar" id="wdmB" style="background:#44f"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel-title">Wave mechanics</div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#0ff"></div>
+          <p><strong>Constructive</strong> — in-phase neighbors reinforce; cells survive &amp; birth</p>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#f0f"></div>
+          <p><strong>Destructive</strong> — out-of-phase neighbors cancel; cells decay</p>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#ff0"></div>
+          <p><strong>Entrainment</strong> — survivors drift toward local phase mean each step</p>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#fa0"></div>
+          <p><strong>WDM</strong> — R/G/B channels are independent photon streams</p>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:#aaf"></div>
+          <p><strong>Aliases</strong> — pattern A→B rewrites; right-click canvas to erase</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- alias palette strip removed — editors live in the side panel -->
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
