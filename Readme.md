@@ -2,7 +2,7 @@
 
 A cellular automaton that models light as computation — not Conway's Life with color on top, but a simulation where wavelength, phase, and wave interference are the actual mechanics.
 
-**[Live demo](https://a-9-sovos.github.io/Photonics-2025)** — or clone and open `index.html` locally, no build step.
+**[Live demo](https://a-9-sovos.github.io/photonic-life)** — or clone and open `index.html` locally, no build step.
 
 ---
 
