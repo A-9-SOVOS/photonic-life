@@ -159,8 +159,19 @@ function step() {
   const ta = amp;   amp   = nextAmp;   nextAmp   = ta;
   const tp = phase; phase = nextPhase; nextPhase = tp;
 
-  // Apply aliases on changed regions
-  if (aliases.length > 0 && dirtyCount > 0) applyAliases();
+  // Apply aliases on changed regions.
+  // Pass 1: all aliases fire on post-physics grid.
+  // Then loop chain-only aliases until exhausted (Markov-style).
+  if (aliases.length > 0 && dirtyCount > 0) {
+    applyAliases(false);
+    const hasChain = aliases.some(a => a.enabled && a.chain);
+    if (hasChain) {
+      let limit = 64; // safety cap — prevents infinite loops from badly designed rules
+      while (dirtyCount > 0 && limit-- > 0) {
+        if (!applyAliases(true)) break;
+      }
+    }
+  }
 
   generation++;
   if (generation % 10 === 0) updateStats();
@@ -193,19 +204,38 @@ let nextAliasId = 1;
 function windowMatches(wx, wy, alias) {
   const { w, h, patA } = alias;
   let i = 0;
-  // Must match editorToPattern traversal: y outer, x inner
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
       const gx = (wx + dx + cols) % cols;
       const gy = (wy + dy + rows) % rows;
+      const gbase = (gx * rows + gy) * 3;
       for (let c = 0; c < 3; c++) {
         const expected = patA[i++];
-        if (expected === 2) continue; // wildcard
-        if (amp[(gx * rows + gy) * 3 + c] !== expected) return false;
+        if (expected === 2) continue; // * wildcard — skip entirely
+        if (expected === 3) {
+          // ? shape — this channel must be alive; checked once per cell below
+          continue;
+        }
+        if (amp[gbase + c] !== expected) return false;
+      }
+      // For ? cells: at least one channel must be alive
+      // patA stores r=3,g=3,b=3 for shape wildcard — detect by checking the triplet
+      const pi = i - 3; // rewind to start of this cell's channels
+      if (patA[pi] === 3) { // shape wildcard cell
+        if (amp[gbase] === 0 && amp[gbase+1] === 0 && amp[gbase+2] === 0) return false;
       }
     }
   }
   return true;
+}
+
+let windowFlags;
+let windowList;
+let windowCount = 0;
+
+function allocWindowScan() {
+  windowFlags = new Uint8Array(cols * rows);
+  windowList  = new Int32Array(cols * rows);
 }
 
 function applyWindow(wx, wy, alias) {
@@ -219,42 +249,32 @@ function applyWindow(wx, wy, alias) {
         const gi = (gx * rows + gy) * 3 + c;
         amp[gi]      = patB[i];
         phase[gi]    = phaseB[i];
-        cohCache[gi] = 0; // stale until next step; zero avoids wrong brightness
+        cohCache[gi] = 0;
         i++;
       }
+      // Mark written cells dirty so chain passes can detect them
+      markDirty(gx, gy);
     }
   }
 }
 
-// Candidate set: for each dirty cell, expand by pattern dimensions to get
-// all top-left corners that could contain that cell.
-// We use a second dirty flags array keyed by (wx * rows + wy) to avoid
-// checking the same window twice.
-let windowFlags; // Uint8Array[cols*rows]
-let windowList;  // Int32Array
-let windowCount = 0;
+// applyAliases(chainOnly):
+//   chainOnly=false → run all enabled aliases (first pass, post-physics)
+//   chainOnly=true  → run only chain-enabled aliases (subsequent passes)
+//   returns true if any alias fired
+function applyAliases(chainOnly) {
+  let anyFired = false;
 
-function allocWindowScan() {
-  windowFlags = new Uint8Array(cols * rows);
-  // Max candidates: every cell can generate w*h window candidates, but
-  // each unique window is only added once, so max is cols*rows.
-  windowList  = new Int32Array(cols * rows);
-}
-
-function applyAliases() {
   for (const alias of aliases) {
     if (!alias.enabled) continue;
+    if (chainOnly && !alias.chain) continue;
     const { w, h } = alias;
 
-    // Build candidate window set from dirty cells
     windowCount = 0;
     for (let di = 0; di < dirtyCount; di++) {
       const li  = dirtyList[di];
       const dcx = (li / rows) | 0;
       const dcy = li % rows;
-
-      // Any window whose region covers (dcx,dcy) has top-left in:
-      // wx ∈ [dcx - w + 1, dcx], wy ∈ [dcy - h + 1, dcy]
       for (let wx = dcx - w + 1; wx <= dcx; wx++) {
         for (let wy = dcy - h + 1; wy <= dcy; wy++) {
           const nwx = (wx + cols) % cols;
@@ -268,25 +288,23 @@ function applyAliases() {
       }
     }
 
-    // Check each candidate window — go straight to full verify
-    // (dirty-region bounding already eliminates most candidates)
     for (let wi = 0; wi < windowCount; wi++) {
       const wli = windowList[wi];
-      windowFlags[wli] = 0; // clear as we go
+      windowFlags[wli] = 0;
       const wx = (wli / rows) | 0;
       const wy = wli % rows;
-
-      // Full verify
       if (!windowMatches(wx, wy, alias)) continue;
-
-      // Apply substitution
       applyWindow(wx, wy, alias);
+      anyFired = true;
     }
   }
+
+  return anyFired;
 }
 
 function addAlias(alias) {
-  alias.id = nextAliasId++;
+  alias.id    = nextAliasId++;
+  alias.chain = alias.chain ?? false;
   aliases.push(alias);
   renderAliasList();
 }
@@ -307,7 +325,7 @@ function toggleAlias(id) {
 // Right-click a cell = reset to dead.
 
 const ALIAS_CHANNEL_STATES = [
-  { r:0,g:0,b:0, color:'#111', label:'·'  },  // 0: dead
+  { r:0,g:0,b:0, color:'#111', label:'·'  },  // 0: dead       — must be fully dead
   { r:1,g:0,b:0, color:'#f44', label:'R'  },  // 1: red
   { r:0,g:1,b:0, color:'#4f4', label:'G'  },  // 2: green
   { r:0,g:0,b:1, color:'#44f', label:'B'  },  // 3: blue
@@ -315,9 +333,10 @@ const ALIAS_CHANNEL_STATES = [
   { r:1,g:0,b:1, color:'#f4f', label:'RB' },  // 5: magenta
   { r:0,g:1,b:1, color:'#4ff', label:'GB' },  // 6: cyan
   { r:1,g:1,b:1, color:'#fff', label:'W'  },  // 7: white
-  { r:2,g:2,b:2, color:'#555', label:'*'  },  // 8: wildcard (A only)
+  { r:3,g:3,b:3, color:'#888', label:'?'  },  // 8: shape      — must be alive (any color) (A only)
+  { r:2,g:2,b:2, color:'#333', label:'*'  },  // 9: wildcard   — truly anything (A only)
 ];
-const A_STATES = 9;
+const A_STATES = 10;
 const B_STATES = 8;
 
 let editorW = 4, editorH = 4;  // must match the select default below
@@ -434,16 +453,84 @@ function editorToPattern(data, w, h) {
   return { pat, phases };
 }
 
+let editingId = null; // null = creating new, number = editing existing
+
+function loadAliasForEdit(id) {
+  const a = aliases.find(a => a.id === id);
+  if (!a) return;
+  editingId = id;
+
+  // Set size pickers
+  editorW = a.w; editorH = a.h;
+  document.getElementById('aliasSizeW').value = a.w;
+  document.getElementById('aliasSizeH').value = a.h;
+
+  // Rebuild editors at correct size, then populate from stored patterns
+  editorA = makeEditorGrid(a.w, a.h);
+  editorB = makeEditorGrid(a.w, a.h);
+
+  // Convert patA/patB back to editor state indices
+  let i = 0;
+  for (let y = 0; y < a.h; y++) {
+    for (let x = 0; x < a.w; x++) {
+      const r = a.patA[i], g = a.patA[i+1], b = a.patA[i+2];
+      editorA[y * a.w + x] = patToStateIndex(r, g, b);
+      const rb = a.patB[i], gb = a.patB[i+1], bb = a.patB[i+2];
+      editorB[y * a.w + x] = patToStateIndex(rb, gb, bb);
+      i += 3;
+    }
+  }
+
+  buildPalette('aliasPalA', true);
+  buildPalette('aliasPalB', false);
+  buildEditorCanvas('aliasEditorA', true);
+  buildEditorCanvas('aliasEditorB', false);
+
+  document.getElementById('aliasName').value = a.name;
+  document.getElementById('aliasAddBtn').textContent = '✓ Save';
+  document.getElementById('aliasCancelEdit').style.display = 'inline-block';
+
+  // Scroll to top of panel so editor is visible
+  document.getElementById('aliasPanel').scrollTop = 0;
+}
+
+function patToStateIndex(r, g, b) {
+  // Reverse lookup into ALIAS_CHANNEL_STATES
+  for (let s = 0; s < ALIAS_CHANNEL_STATES.length; s++) {
+    const st = ALIAS_CHANNEL_STATES[s];
+    if (st.r === r && st.g === g && st.b === b) return s;
+  }
+  return 0; // fallback to dead
+}
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('aliasName').value = '';
+  document.getElementById('aliasAddBtn').textContent = '+ Add';
+  document.getElementById('aliasCancelEdit').style.display = 'none';
+  rebuildEditors();
+}
+
 function commitAlias() {
   const nameEl = document.getElementById('aliasName');
   const name   = nameEl.value.trim() || ('Alias ' + nextAliasId);
-  const { pat: patA }          = editorToPattern(editorA, editorW, editorH);
-  const { pat: patB, phases: phaseB } = editorToPattern(editorB, editorW, editorH);
+  const { pat: patA }                     = editorToPattern(editorA, editorW, editorH);
+  const { pat: patB, phases: phaseB }     = editorToPattern(editorB, editorW, editorH);
 
-  addAlias({ name, w: editorW, h: editorH, patA, patB, phaseB, enabled: true });
-  nameEl.value = '';
-  // Reset editors
-  rebuildEditors();
+  if (editingId !== null) {
+    // Update existing alias in-place
+    const a = aliases.find(a => a.id === editingId);
+    if (a) {
+      a.name = name; a.w = editorW; a.h = editorH;
+      a.patA = patA; a.patB = patB; a.phaseB = phaseB;
+    }
+    cancelEdit();
+    renderAliasList();
+  } else {
+    addAlias({ name, w: editorW, h: editorH, patA, patB, phaseB, enabled: true });
+    nameEl.value = '';
+    rebuildEditors();
+  }
 }
 
 // ── Alias export / import ─────────────────────────────────────────────────────
@@ -455,6 +542,7 @@ function exportAliases() {
     w:       a.w,
     h:       a.h,
     enabled: a.enabled,
+    chain:   a.chain,
     patA:    Array.from(a.patA),
     patB:    Array.from(a.patB),
     phaseB:  Array.from(a.phaseB),
@@ -483,6 +571,7 @@ function importAliases(file) {
           w:       a.w,
           h:       a.h,
           enabled: a.enabled !== false,
+          chain:   a.chain === true,
           patA:    new Uint8Array(a.patA),
           patB:    new Uint8Array(a.patB),
           phaseB:  new Float32Array(a.phaseB),
@@ -508,10 +597,21 @@ function renderAliasList() {
     row.innerHTML =
       `<span class="alias-name">${a.name}</span>` +
       `<span class="alias-size">${a.w}×${a.h}</span>` +
+      `<button class="alias-chain ${a.chain ? 'chain-on' : ''}" data-id="${a.id}" title="Chain: fires on other alias outputs">⛓</button>` +
+      `<button class="alias-edit"   data-id="${a.id}">✎</button>` +
       `<button class="alias-toggle" data-id="${a.id}">${a.enabled ? '●' : '○'}</button>` +
-      `<button class="alias-del" data-id="${a.id}">✕</button>`;
+      `<button class="alias-del"    data-id="${a.id}">✕</button>`;
     list.appendChild(row);
   }
+  list.querySelectorAll('.alias-chain').forEach(b =>
+    b.addEventListener('click', () => {
+      const a = aliases.find(a => a.id === +b.dataset.id);
+      if (a) { a.chain = !a.chain; renderAliasList(); }
+    })
+  );
+  list.querySelectorAll('.alias-edit').forEach(b =>
+    b.addEventListener('click', () => loadAliasForEdit(+b.dataset.id))
+  );
   list.querySelectorAll('.alias-toggle').forEach(b =>
     b.addEventListener('click', () => toggleAlias(+b.dataset.id))
   );
@@ -758,6 +858,7 @@ document.getElementById('aliasToggleBtn').onclick  = () => setAliasPanel(!docume
 document.getElementById('aliasPanelClose').onclick = () => setAliasPanel(false);
 
 document.getElementById('aliasAddBtn').onclick    = commitAlias;
+document.getElementById('aliasCancelEdit').onclick = cancelEdit;
 document.getElementById('aliasExportBtn').onclick = exportAliases;
 document.getElementById('aliasImportBtn').onclick = () => document.getElementById('aliasImportFile').click();
 document.getElementById('aliasImportFile').onchange = e => {

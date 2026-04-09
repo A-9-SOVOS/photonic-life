@@ -235,6 +235,11 @@
     .alias-name { flex: 1; font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .alias-size { font-size: 10px; color: #445; font-variant-numeric: tabular-nums; }
     .alias-toggle { padding: 2px 6px; font-size: 12px; color: #667eea; border-color: #1a1a3a; }
+    .alias-edit   { padding: 2px 6px; font-size: 11px; color: #8a8; border-color: #1a2a1a; }
+    .alias-edit:hover { color: #afa; border-color: #4f4; }
+    .alias-chain  { padding: 2px 6px; font-size: 11px; color: #555; border-color: #1a1a2a; }
+    .alias-chain.chain-on { color: #fa0; border-color: #a60; background: #1a1000; }
+    .alias-chain:hover { color: #fa0; }
     .alias-del    { padding: 2px 6px; font-size: 10px; color: #644; border-color: #1a1a2a; }
     .alias-del:hover { color: #f44; border-color: #f44; }
   </style>
@@ -325,12 +330,15 @@
         <div id="aliasEditorB" style="margin-bottom:10px"></div>
 
         <div style="font-size:9px;color:#334;margin-bottom:8px">
-          Click palette → paint cells. Right-click cell = dead.
+          Click palette → paint cells. Right-click cell = dead.<br>
+          <span style="color:#888">?</span> = alive any color &nbsp;
+          <span style="color:#555">*</span> = truly anything (A only)
         </div>
 
         <div class="ap-add-row">
           <input type="text" id="aliasName" placeholder="Name…" maxlength="32">
           <button id="aliasAddBtn">+ Add</button>
+          <button id="aliasCancelEdit" style="display:none;border-color:#644;color:#f88">✕</button>
         </div>
       </div>
 

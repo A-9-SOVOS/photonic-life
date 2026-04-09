@@ -1,0 +1,218 @@
+{
+  "version": 1,
+  "note": "Apple shape grammar using a blue scaffold grid as stable tape.\n\nArchitecture (borrowed from Brainfuck/Markov/Shape Grammar):\n  - A 3x3 blue grid acts as stable scaffolding — blue cells survive the physics because they have coherent blue neighbors.\n  - A single cyan cell (G+B) within the blue grid is the MARKER — the program counter.\n  - Each rule detects the marker at a specific row position within the scaffold and:\n    1. Writes the corresponding apple row to the LEFT of the scaffold\n    2. Moves the marker DOWN one row (cyan moves down, leaving blue behind)\n  - Termination: marker reaches bottom of scaffold, final rule removes it.\n  - The scaffold is painted once (paused) as a vertical blue column 14 cells tall.\n    The trigger is a single isolated green cell 2 cells above the scaffold top.\n\nTo use:\n  1. Pause sim, clear grid\n  2. Paint a vertical column of 14 blue cells\n  3. Paint a single green cell 2 cells above the top of the blue column\n  4. The start rule fires, writes the stem, places cyan marker at top of blue column\n  5. Step through — each step the marker advances and one apple row is written\n  6. After 14 steps the apple is complete and the marker is gone\n\nWhy blue is safe: blue cells only have blue neighbors in the scaffold,\ncoherence is 1.0, they survive indefinitely. Red apple cells written to\nthe left are far enough from the scaffold that phase bleed is minimal.\nCyan marker has 2 blue neighbors (above and below) so it also survives.",
+
+  "aliases": [
+
+    {
+      "name": "S0: Start — green trigger to stem + marker",
+      "note": "Isolated green cell 2 above blue scaffold top. Writes cyan stem, places cyan marker at scaffold row 0. w=3 h=4.",
+      "w": 3,
+      "h": 4,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,1,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,1, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0
+      ],
+      "patB": [
+        0,0,0, 0,1,1, 0,0,0,
+        0,0,0, 0,1,1, 0,0,0,
+        0,0,0, 0,1,1, 0,0,0,
+        0,0,0, 0,0,1, 0,0,0
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R01: Marker row 1 — notch top",
+      "note": "Cyan marker at scaffold row 1 (blue above, blue below). Writes apple notch row to left: . R . R . Advances marker down. w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 1,0,0, 0,0,0, 1,0,0, 0,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R02: Marker row 2 — top arc",
+      "note": "Writes: . R R R R R . Advances marker. w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R03: Marker row 3 — highlight row",
+      "note": "Writes: R w R R R R R (white highlight at col 1). w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 1,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        1,0,0, 1,1,1, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R04: Marker row 4 — highlight row 2",
+      "note": "Writes: R w w R R R R R. w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 1,1,1, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        1,0,0, 1,1,1, 1,1,1, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R05-11: Body rows — full width",
+      "note": "Marker in middle of scaffold (blue above AND below). Writes full-width red row: R R R R R R R. Fires for rows 5-11. w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R12: Taper row 1",
+      "note": "Writes: . R R R R R . (one cell narrower each side). w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1
+      ],
+      "patB": [
+        1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,1,
+        0,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R13: Taper row 2",
+      "note": "Writes: . . R R R . . w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1
+      ],
+      "patB": [
+        0,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 1,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    },
+
+    {
+      "name": "R14: Termination — bottom split + erase marker",
+      "note": "Marker at scaffold bottom (blue above, dead below). Writes final split: R R . R R. Removes marker — leaves only blue. Shape grammar termination rule. w=8 h=3.",
+      "w": 8,
+      "h": 3,
+      "enabled": true,
+      "patA": [
+        0,0,0, 0,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,1,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ],
+      "patB": [
+        0,0,0, 0,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,1,
+        1,0,0, 1,0,0, 0,0,0, 0,0,0, 1,0,0, 1,0,0, 0,0,0, 0,0,1,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ],
+      "phaseB": [
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0,
+        0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0
+      ]
+    }
+
+  ]
+}
