@@ -35,7 +35,7 @@ Brightness in the render encodes local phase coherence — you can watch coheren
 - Bloom rendering via a two-pass box-blur composited additively over the sharp cell layer (toggle off for max performance)
 - Flat `Uint8Array` / `Float32Array` grid storage — cache-friendly, zero GC pressure in the hot path
 - Coherence cached during step, read by renderer — neighbor walk happens once per cell per step
-- Stats throttled to every 10 generations
+- Stats update every 10 generations, or immediately whenever an alias fires
 
 ### Painting
 - Left-click drag to paint cells with selected channel(s) and phase
@@ -47,12 +47,15 @@ Brightness in the render encodes local phase coherence — you can watch coheren
 Pattern rewriting rules: define a trigger pattern A and a replacement pattern B. When A appears anywhere on the grid, it's atomically replaced with B.
 
 - Color-exact matching — each cell in a pattern specifies which channels must be alive
-- Wildcard cells (`*`) match any state (trigger patterns only)
+- `?` cells match any live color (at least one channel alive)
+- `*` cells match anything — live, dead, any color (trigger patterns only)
 - Dirty-region incremental scanning — only cells that changed state this step are checked, so alias cost on a stable grid is ~zero
+- Chain mode (⛓) — alias fires again on its own outputs, enabling multi-step rewrite cascades
 - Up to 8×8 pattern size
 - Enable/disable individual aliases at runtime
 - **Export** aliases to `.json` — shareable, human-readable
 - **Import** aliases from `.json` — merges into current set
+- **Clear** removes all aliases at once (with confirmation)
 
 ---
 
@@ -74,13 +77,37 @@ Pattern rewriting rules: define a trigger pattern A and a replacement pattern B.
 | Left-click drag | Paint |
 | Right-click drag | Erase |
 
+### Alias editor
+
+1. Set pattern size (W × H, up to 8×8)
+2. Click a palette swatch to select a color, then click/drag cells to paint
+   - Right-click a cell to reset it to dead
+   - `?` — alive, any color (A pattern only)
+   - `*` — wildcard, matches anything (A pattern only)
+3. Paint the **A** (trigger) pattern, then the **B** (replacement) pattern
+4. Name it and click **+ Add**
+
+To edit an existing alias click ✎, make changes, then **✓ Save**. ⛓ toggles chain mode. ● / ○ toggles enabled. ✕ deletes.
+
+---
+
+## Example: Spider
+
+`examples/Spider.json` contains a two-alias set that turns a specific shape wildcard pattern into a spider-like structure. To load it:
+
+1. Open the alias panel (⇄ Aliases)
+2. Click **↑ Import** and select `examples/Spider.json`
+3. Seed the grid (⟳ Seed) and play — the aliases will fire wherever the trigger pattern appears
+
+You can export your own alias sets the same way with **↓ Export**.
+
 ---
 
 ## Theoretical basis
 
 This project is a simulation of the photonic compute substrate described in the included whitepaper:
 
-> *Starting Over Today for a 1,000,000% Compute Power Boost Over the Best of Tomorrow — A Whitepaper on Photonic Compute Substrates* 
+> *Starting Over Today for a 1,000,000% Compute Power Boost Over the Best of Tomorrow — A Whitepaper on Photonic Compute Substrates*
 
 https://github.com/A-9-SOVOS/Photonics-2025
 
@@ -102,9 +129,9 @@ The alias system demonstrates the whitepaper's programming model: *"define local
 Tested target: Steam 50th-percentile gaming PC (integrated/entry GPU, ~4-core CPU).
 
 - Step loop: fully inlined phasor math, zero array allocations per cell
-- Render: `ImageData` pixel writes (bloom off) or single `shadowBlur` state set (bloom on)
+- Render: `ImageData` pixel writes (bloom off) or two-pass box-blur composite (bloom on) — bloom buffers allocated once per canvas size, not per frame
 - Alias scan: dirty-region bounded — O(changed cells × pattern area), not O(grid size)
-- DOM: all element refs cached at startup, stats written every 10 steps
+- DOM: all element refs cached at startup, stats written every 10 steps (or immediately on alias fire)
 
 ---
 
@@ -113,6 +140,7 @@ Tested target: Steam 50th-percentile gaming PC (integrated/entry GPU, ~4-core CP
 ```
 index.html                        — UI, layout, styles
 app.js                            — simulation, rendering, alias engine
+examples/Spider.json              — example alias set
 Readme.md                         — this file
 .github/workflows/deploy.yml      — GitHub Pages deployment
 ```

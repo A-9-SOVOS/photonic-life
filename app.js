@@ -936,7 +936,7 @@ canvas.addEventListener('touchend',   () => { painting = false; erasing = false;
 document.getElementById('playButton').onclick = () => {
   cfg.isPlaying = !cfg.isPlaying;
   document.getElementById('playButton').textContent = cfg.isPlaying ? '⏸ Pause' : '▶ Play';
-  if (cfg.isPlaying) { lastTime = 0; accum = 0; loop(); }
+  if (cfg.isPlaying && rafId === 0) { lastTime = 0; accum = 0; rafId = requestAnimationFrame(loop); }
 };
 document.getElementById('stepButton').onclick   = ()=>{cfg.isPlaying=false;document.getElementById('playButton').textContent='▶ Play';step();};
 document.getElementById('randomButton').onclick  = randomize;
@@ -1026,18 +1026,19 @@ function resizePreserve() {
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
-let lastTime=0, accum=0;
-function loop(ts=0) {
-  if (!cfg.isPlaying) return;
-  // If lastTime is 0 (fresh start or resume), seed it so elapsed = 0 this frame
+let lastTime = 0, accum = 0;
+let rafId    = 0; // track the pending rAF so we never spawn two concurrent loops
+
+function loop(ts = 0) {
+  if (!cfg.isPlaying) { rafId = 0; return; }
   if (lastTime === 0) lastTime = ts;
   // Cap elapsed to one interval — prevents spiral-of-death after tab wake or long pause
   const interval = 1000 / cfg.speed;
-  const elapsed = Math.min(ts - lastTime, interval);
+  const elapsed  = Math.min(ts - lastTime, interval);
   lastTime = ts;
   accum += elapsed;
   while (accum >= interval) { step(); accum -= interval; }
-  requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
