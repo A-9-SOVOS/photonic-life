@@ -33,6 +33,7 @@ const cfg = {
   isPlaying:  false,
   brushCh:    [true, false, false],
   brushPhase: 0,
+  brushSize:  1,
   bloom:      true,
 };
 
@@ -40,7 +41,7 @@ const SURVIVE_COHERENCE = 0.42;
 const BIRTH_COHERENCE   = 0.52;
 const ENTRAINMENT       = 0.07;
 const TWO_PI            = Math.PI * 2;
-const THREE_PI          = Math.PI * 3;
+const THREE_PI          = Math.PI * 3; // used for phase-wrap: ((Δ + 3π) % 2π) − π maps any angle to (−π, π]
 
 let cols, rows, generation = 0;
 
@@ -120,11 +121,12 @@ function step() {
           continue;
         }
 
-        const R    = Math.sqrt(sx * sx + sy * sy) / n;
+        const invN = 1 / n;
+        const R    = Math.sqrt(sx * sx + sy * sy) * invN;
         const mean = Math.atan2(sy, sx);
         cohCache[i] = R;
 
-        let newAmp = amp[i]; // default: unchanged (overwritten below in all live branches)
+        let newAmp;
         if (amp[i] === 1) {
           if ((n === 2 || n === 3) && R >= SURVIVE_COHERENCE) {
             const delta = mean - phase[i];
@@ -162,8 +164,9 @@ function step() {
   // Apply aliases on changed regions.
   // Pass 1: all aliases fire on post-physics grid.
   // Then loop chain-only aliases until exhausted (Markov-style).
+  let aliasesFired = false;
   if (aliases.length > 0 && dirtyCount > 0) {
-    applyAliases(false);
+    aliasesFired = applyAliases(false);
     const hasChain = aliases.some(a => a.enabled && a.chain);
     if (hasChain) {
       let limit = 64; // safety cap — prevents infinite loops from badly designed rules
@@ -174,7 +177,9 @@ function step() {
   }
 
   generation++;
-  if (generation % 10 === 0) updateStats();
+  // Always update stats when aliases fired (they can change cell counts mid-step),
+  // otherwise throttle to every 10 generations to keep the hot path cheap.
+  if (aliasesFired || generation % 10 === 0) updateStats();
   render();
 }
 
@@ -206,23 +211,31 @@ function windowMatches(wx, wy, alias) {
   let i = 0;
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
-      const gx = (wx + dx + cols) % cols;
-      const gy = (wy + dy + rows) % rows;
+      const gx    = (wx + dx + cols) % cols;
+      const gy    = (wy + dy + rows) % rows;
       const gbase = (gx * rows + gy) * 3;
-      for (let c = 0; c < 3; c++) {
-        const expected = patA[i++];
-        if (expected === 2) continue; // * wildcard — skip entirely
-        if (expected === 3) {
-          // ? shape — this channel must be alive; checked once per cell below
-          continue;
-        }
-        if (amp[gbase + c] !== expected) return false;
+      const cellStart = i; // index of r-channel for this cell in patA
+
+      // Determine cell type from the r-channel value (all three channels share the same
+      // special value for ? and * cells, so checking r is sufficient).
+      const cellType = patA[cellStart];
+
+      if (cellType === 2) {
+        // * wildcard — matches anything, skip all three channels
+        i += 3;
+        continue;
       }
-      // For ? cells: at least one channel must be alive
-      // patA stores r=3,g=3,b=3 for shape wildcard — detect by checking the triplet
-      const pi = i - 3; // rewind to start of this cell's channels
-      if (patA[pi] === 3) { // shape wildcard cell
-        if (amp[gbase] === 0 && amp[gbase+1] === 0 && amp[gbase+2] === 0) return false;
+
+      if (cellType === 3) {
+        // ? shape wildcard — cell must have at least one live channel
+        if (amp[gbase] === 0 && amp[gbase + 1] === 0 && amp[gbase + 2] === 0) return false;
+        i += 3;
+        continue;
+      }
+
+      // Exact match — each channel must equal the pattern value (0=dead, 1=alive)
+      for (let c = 0; c < 3; c++) {
+        if (amp[gbase + c] !== patA[i++]) return false;
       }
     }
   }
@@ -290,14 +303,19 @@ function applyAliases(chainOnly) {
 
     for (let wi = 0; wi < windowCount; wi++) {
       const wli = windowList[wi];
-      windowFlags[wli] = 0;
+      windowFlags[wli] = 0; // clear flag as we consume each entry
       const wx = (wli / rows) | 0;
       const wy = wli % rows;
       if (!windowMatches(wx, wy, alias)) continue;
       applyWindow(wx, wy, alias);
       anyFired = true;
     }
-  }
+    // If windowList was full, some candidate windows were silently dropped.
+    // Clear any remaining set flags so they don't bleed into the next alias pass.
+    if (windowCount === windowList.length) {
+      for (let wi = 0; wi < windowCount; wi++) windowFlags[windowList[wi]] = 0;
+    }
+  } // end for (const alias of aliases)
 
   return anyFired;
 }
@@ -426,6 +444,18 @@ function buildEditorCanvas(containerId, isA) {
   cvs.addEventListener('mouseup',     () => editorPainting = false);
   cvs.addEventListener('mouseleave',  () => editorPainting = false);
   cvs.addEventListener('contextmenu', e => paintCell(e));
+
+  // Touch support for alias editor
+  cvs.addEventListener('touchstart', e => {
+    e.preventDefault();
+    editorPainting = true;
+    paintCell({ preventDefault(){}, clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, buttons: 1 });
+  }, { passive: false });
+  cvs.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (editorPainting) paintCell({ preventDefault(){}, clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, buttons: 1 });
+  }, { passive: false });
+  cvs.addEventListener('touchend', () => editorPainting = false);
 }
 
 function rebuildEditors() {
@@ -641,11 +671,15 @@ function initSizePickers() {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 let imageData = null;
 let pixels    = null;
+let bloomBuf  = null;  // cached bloom scratch buffers — allocated once per canvas size
+let bloomTmp  = null;
 
 function ensureImageData() {
   if (!imageData || imageData.width !== canvas.width || imageData.height !== canvas.height) {
     imageData = ctx.createImageData(canvas.width, canvas.height);
     pixels    = imageData.data;
+    bloomBuf  = new Uint8ClampedArray(pixels.length);
+    bloomTmp  = new Uint8ClampedArray(pixels.length);
   }
 }
 
@@ -685,29 +719,98 @@ function render() {
     ctx.putImageData(imageData, 0, 0);
 
   } else {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.shadowBlur = cs * 2.2;
+    // Fast bloom: draw cells into ImageData, then composite a blurred copy for glow
+    ensureImageData();
+    pixels.fill(0);
 
+    // First pass: write cell colors into pixel buffer
     for (let x = 0; x < cols; x++) {
       for (let y = 0; y < rows; y++) {
         const base = (x * rows + y) * 3;
         let R = 0, G = 0, B = 0;
-        if (amp[base]     === 1) { R += 255 * (0.3 + 0.7 * cohCache[base]);     }
-        if (amp[base + 1] === 1) { G += 255 * (0.3 + 0.7 * cohCache[base + 1]); }
-        if (amp[base + 2] === 1) { B += 255 * (0.3 + 0.7 * cohCache[base + 2]); }
+        if (amp[base]     === 1) R = 255 * (0.3 + 0.7 * cohCache[base]);
+        if (amp[base + 1] === 1) G = 255 * (0.3 + 0.7 * cohCache[base + 1]);
+        if (amp[base + 2] === 1) B = 255 * (0.3 + 0.7 * cohCache[base + 2]);
         if (R === 0 && G === 0 && B === 0) continue;
 
         const pr = R > 255 ? 255 : R | 0;
         const pg = G > 255 ? 255 : G | 0;
         const pb = B > 255 ? 255 : B | 0;
-        ctx.shadowColor = `rgb(${pr},${pg},${pb})`;
-        ctx.fillStyle   = `rgb(${pr},${pg},${pb})`;
-        ctx.fillRect(x * cs, y * cs, cs, cs);
+        const px0 = x * cs, py0 = y * cs;
+
+        for (let py = py0; py < py0 + cs && py < canvas.height; py++) {
+          let pi = (py * canvas.width + px0) * 4;
+          for (let px = px0; px < px0 + cs && px < canvas.width; px++) {
+            pixels[pi]     = pr;
+            pixels[pi + 1] = pg;
+            pixels[pi + 2] = pb;
+            pixels[pi + 3] = 255;
+            pi += 4;
+          }
+        }
       }
     }
-    ctx.shadowBlur  = 0;
-    ctx.shadowColor = 'transparent';
+
+    // Second pass: simple box-blur spread for glow (radius = cs)
+    // We write the blurred result to a second buffer then composite
+    const w = canvas.width, h = canvas.height;
+    const bloom = bloomBuf;
+    const rad = Math.max(1, cs | 0);
+    // Horizontal blur
+    const tmp = bloomTmp;
+    const inv = 1 / (rad * 2 + 1);
+    for (let py = 0; py < h; py++) {
+      let rS=0,gS=0,bS=0;
+      for (let px = -rad; px <= rad; px++) {
+        const pi = (py * w + Math.max(0, Math.min(w-1, px))) * 4;
+        rS += pixels[pi]; gS += pixels[pi+1]; bS += pixels[pi+2];
+      }
+      for (let px = 0; px < w; px++) {
+        const pi = (py * w + px) * 4;
+        tmp[pi]   = rS * inv;
+        tmp[pi+1] = gS * inv;
+        tmp[pi+2] = bS * inv;
+        tmp[pi+3] = 255;
+        const addPx = Math.min(w-1, px + rad + 1);
+        const remPx = Math.max(0,   px - rad);
+        const ai = (py * w + addPx) * 4, ri = (py * w + remPx) * 4;
+        rS += pixels[ai] - pixels[ri];
+        gS += pixels[ai+1] - pixels[ri+1];
+        bS += pixels[ai+2] - pixels[ri+2];
+      }
+    }
+    // Vertical blur
+    for (let px = 0; px < w; px++) {
+      let rS=0,gS=0,bS=0;
+      for (let py = -rad; py <= rad; py++) {
+        const pi = (Math.max(0, Math.min(h-1, py)) * w + px) * 4;
+        rS += tmp[pi]; gS += tmp[pi+1]; bS += tmp[pi+2];
+      }
+      for (let py = 0; py < h; py++) {
+        const pi = (py * w + px) * 4;
+        bloom[pi]   = rS * inv;
+        bloom[pi+1] = gS * inv;
+        bloom[pi+2] = bS * inv;
+        bloom[pi+3] = 255;
+        const addPy = Math.min(h-1, py + rad + 1);
+        const remPy = Math.max(0,   py - rad);
+        const ai = (addPy * w + px) * 4, ri = (remPy * w + px) * 4;
+        rS += tmp[ai] - tmp[ri];
+        gS += tmp[ai+1] - tmp[ri+1];
+        bS += tmp[ai+2] - tmp[ri+2];
+      }
+    }
+
+    // Composite: bloom layer (additive) under sharp cells
+    for (let i = 0; i < pixels.length; i += 4) {
+      const br = bloom[i], bg = bloom[i+1], bb = bloom[i+2];
+      const sr = pixels[i], sg = pixels[i+1], sb = pixels[i+2];
+      pixels[i]   = Math.min(255, sr + (br >> 1));
+      pixels[i+1] = Math.min(255, sg + (bg >> 1));
+      pixels[i+2] = Math.min(255, sb + (bb >> 1));
+      pixels[i+3] = sr || sg || sb || br || bg || bb ? 255 : 0;
+    }
+    ctx.putImageData(imageData, 0, 0);
   }
 }
 
@@ -725,22 +828,22 @@ const elWdmG   = document.getElementById('wdmG');
 const elWdmB   = document.getElementById('wdmB');
 
 function updateStats() {
-  let a0=0,a1=0,a2=0, sx0=0,sy0=0,sx1=0,sy1=0,sx2=0,sy2=0;
+  let a0=0,a1=0,a2=0, c0=0,c1=0,c2=0;
   const total = cols * rows;
   for (let i = 0; i < total; i++) {
     const b = i * 3;
-    if (amp[b]   ===1){a0++;const p=phase[b];   sx0+=Math.cos(p);sy0+=Math.sin(p);}
-    if (amp[b+1] ===1){a1++;const p=phase[b+1]; sx1+=Math.cos(p);sy1+=Math.sin(p);}
-    if (amp[b+2] ===1){a2++;const p=phase[b+2]; sx2+=Math.cos(p);sy2+=Math.sin(p);}
+    if (amp[b]   === 1) { a0++; c0 += cohCache[b];   }
+    if (amp[b+1] === 1) { a1++; c1 += cohCache[b+1]; }
+    if (amp[b+2] === 1) { a2++; c2 += cohCache[b+2]; }
   }
   elGen.textContent    = generation;
   elActive.textContent = a0+a1+a2;
   elChR.textContent    = a0;
   elChG.textContent    = a1;
   elChB.textContent    = a2;
-  elCohR.textContent   = a0>0?(Math.sqrt(sx0*sx0+sy0*sy0)/a0).toFixed(3):'—';
-  elCohG.textContent   = a1>0?(Math.sqrt(sx1*sx1+sy1*sy1)/a1).toFixed(3):'—';
-  elCohB.textContent   = a2>0?(Math.sqrt(sx2*sx2+sy2*sy2)/a2).toFixed(3):'—';
+  elCohR.textContent   = a0>0?(c0/a0).toFixed(3):'—';
+  elCohG.textContent   = a1>0?(c1/a1).toFixed(3):'—';
+  elCohB.textContent   = a2>0?(c2/a2).toFixed(3):'—';
   const mx = Math.max(1,a0,a1,a2);
   elWdmR.style.height = (a0/mx*100)+'%';
   elWdmG.style.height = (a1/mx*100)+'%';
@@ -833,13 +936,13 @@ canvas.addEventListener('touchend',   () => { painting = false; erasing = false;
 document.getElementById('playButton').onclick = () => {
   cfg.isPlaying = !cfg.isPlaying;
   document.getElementById('playButton').textContent = cfg.isPlaying ? '⏸ Pause' : '▶ Play';
-  if (cfg.isPlaying) loop();
+  if (cfg.isPlaying) { lastTime = 0; accum = 0; loop(); }
 };
 document.getElementById('stepButton').onclick   = ()=>{cfg.isPlaying=false;document.getElementById('playButton').textContent='▶ Play';step();};
 document.getElementById('randomButton').onclick  = randomize;
 document.getElementById('clearButton').onclick   = clearGrid;
 document.getElementById('speedSlider').oninput   = e=>{cfg.speed=+e.target.value;document.getElementById('speedValue').textContent=cfg.speed+' FPS';};
-document.getElementById('sizeSlider').oninput    = e=>{cfg.cellSize=+e.target.value;document.getElementById('sizeValue').textContent=cfg.cellSize+'px';resize();allocGrids();allocDirty();allocWindowScan();randomize();};
+document.getElementById('sizeSlider').oninput    = e=>{cfg.cellSize=+e.target.value;document.getElementById('sizeValue').textContent=cfg.cellSize+'px';resizePreserve();};
 document.getElementById('bloomToggle').onchange  = e=>{cfg.bloom=e.target.checked;render();};
 document.getElementById('brushSizeSlider').oninput=e=>{cfg.brushSize=+e.target.value;document.getElementById('brushSizeValue').textContent=(cfg.brushSize*2-1)+'px';};
 ['R','G','B'].forEach((ch,i)=>{
@@ -849,8 +952,9 @@ document.getElementById('brushSizeSlider').oninput=e=>{cfg.brushSize=+e.target.v
 });
 document.getElementById('phaseSlider').oninput=e=>{cfg.brushPhase=(+e.target.value/360)*TWO_PI;document.getElementById('phaseValue').textContent=e.target.value+'°';};
 
-// Alias panel toggle
+// Alias panel toggle — closing the panel also cancels any in-progress edit
 function setAliasPanel(open) {
+  if (!open && editingId !== null) cancelEdit();
   document.getElementById('aliasPanel').classList.toggle('open', open);
   document.getElementById('aliasToggleBtn').classList.toggle('active', open);
 }
@@ -861,6 +965,14 @@ document.getElementById('aliasAddBtn').onclick    = commitAlias;
 document.getElementById('aliasCancelEdit').onclick = cancelEdit;
 document.getElementById('aliasExportBtn').onclick = exportAliases;
 document.getElementById('aliasImportBtn').onclick = () => document.getElementById('aliasImportFile').click();
+document.getElementById('aliasClearBtn').onclick  = () => {
+  if (aliases.length === 0) return;
+  if (confirm('Remove all ' + aliases.length + ' alias' + (aliases.length === 1 ? '' : 'es') + '?')) {
+    aliases = [];
+    cancelEdit();
+    renderAliasList();
+  }
+};
 document.getElementById('aliasImportFile').onchange = e => {
   if (e.target.files[0]) importAliases(e.target.files[0]);
   e.target.value = ''; // reset so same file can be re-imported
@@ -875,23 +987,62 @@ function resize() {
   rows = Math.floor(canvas.height / cfg.cellSize);
 }
 
+// Resize while preserving existing cell data.
+// Cells that fit in the new grid are copied, centered; anything outside is lost.
+function resizePreserve() {
+  const oldCols = cols, oldRows = rows;
+  const oldAmp = amp, oldPhase = phase;
+
+  resize();
+  allocGrids();
+  allocDirty();
+  allocWindowScan();
+
+  // Center the old content in the new grid.
+  // copyW/copyH = how many cells to copy in each dimension.
+  // srcX0/srcY0 = top-left in the old grid to start reading from.
+  // dstX0/dstY0 = top-left in the new grid to start writing to.
+  const copyW = Math.min(oldCols, cols);
+  const copyH = Math.min(oldRows, rows);
+  const srcX0 = (oldCols - copyW) >> 1;
+  const srcY0 = (oldRows - copyH) >> 1;
+  const dstX0 = (cols    - copyW) >> 1;
+  const dstY0 = (rows    - copyH) >> 1;
+
+  for (let x = 0; x < copyW; x++) {
+    for (let y = 0; y < copyH; y++) {
+      const src = ((srcX0 + x) * oldRows + (srcY0 + y)) * 3;
+      const dst = ((dstX0 + x) * rows    + (dstY0 + y)) * 3;
+      amp[dst]       = oldAmp[src];
+      amp[dst + 1]   = oldAmp[src + 1];
+      amp[dst + 2]   = oldAmp[src + 2];
+      phase[dst]     = oldPhase[src];
+      phase[dst + 1] = oldPhase[src + 1];
+      phase[dst + 2] = oldPhase[src + 2];
+    }
+  }
+
+  render();
+}
+
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let lastTime=0, accum=0;
 function loop(ts=0) {
   if (!cfg.isPlaying) return;
-  // Cap elapsed to 200ms — prevents spiral-of-death after tab wake
-  const elapsed = Math.min(ts - lastTime, 200);
+  // If lastTime is 0 (fresh start or resume), seed it so elapsed = 0 this frame
+  if (lastTime === 0) lastTime = ts;
+  // Cap elapsed to one interval — prevents spiral-of-death after tab wake or long pause
+  const interval = 1000 / cfg.speed;
+  const elapsed = Math.min(ts - lastTime, interval);
   lastTime = ts;
   accum += elapsed;
-  const interval = 1000 / cfg.speed;
   while (accum >= interval) { step(); accum -= interval; }
   requestAnimationFrame(loop);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-cfg.brushSize = 1;
 
-window.addEventListener('resize', ()=>{resize();allocGrids();allocDirty();allocWindowScan();randomize();});
+window.addEventListener('resize', () => resizePreserve());
 
 resize();
 allocGrids();

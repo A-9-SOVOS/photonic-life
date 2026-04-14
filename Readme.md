@@ -32,7 +32,7 @@ Brightness in the render encodes local phase coherence — you can watch coheren
 
 ### Simulation
 - Toroidal grid (wrapping edges)
-- Bloom rendering via `shadowBlur` (toggle off for max performance)
+- Bloom rendering via a two-pass box-blur composited additively over the sharp cell layer (toggle off for max performance)
 - Flat `Uint8Array` / `Float32Array` grid storage — cache-friendly, zero GC pressure in the hot path
 - Coherence cached during step, read by renderer — neighbor walk happens once per cell per step
 - Stats throttled to every 10 generations
